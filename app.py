@@ -38,7 +38,7 @@ class Transaction(db.Model):
 
     @property
     def signed_amount(self) -> Decimal:
-        if self.category and self.category.tipo == 'ingreso':
+        if self.category and (self.category.tipo or '').strip().lower() == 'ingreso':
             return Decimal(self.importe or 0)
         return -Decimal(self.importe or 0)
 
@@ -131,12 +131,12 @@ def resumen():
     d1, d2 = cycle_bounds(ref, CYCLE_START_DAY)
     fin_inclusivo = d2 - timedelta(days=1)
 
-    # Movimientos del ciclo
+    # Transacciones del ciclo
     tx = Transaction.query.filter(Transaction.fecha >= d1, Transaction.fecha < d2).all()
 
     # KPIs
-    ingresos = sum(float(t.importe) for t in tx if t.category and (t.category.tipo or '').lower() == 'ingreso')
-    gastos   = sum(float(t.importe) for t in tx if t.category and (t.category.tipo or '').lower() != 'ingreso')
+    ingresos = sum(float(t.importe) for t in tx if t.category and (t.category.tipo or '').strip().lower() == 'ingreso')
+    gastos   = sum(float(t.importe) for t in tx if t.category and (t.category.tipo or '').strip().lower() == 'gasto')
     balance  = ingresos - gastos
 
     # Saldos por cuenta
@@ -147,76 +147,67 @@ def resumen():
         total_movs = sum(float(t.signed_amount) for t in movs)
         saldos.append({'cuenta': c, 'saldo': float(c.saldo_inicial) + total_movs})
 
-    # Totales del ciclo por categoría (tabla)
+    # Totales por categoría (para tabla)
     por_cat = {}
     for t in tx:
-        nombre = t.category.nombre if t.category else 'Sin categoría'
-        tipo   = (t.category.tipo if t.category else 'gasto')
-        por_cat[(nombre, tipo)] = por_cat.get((nombre, tipo), 0.0) + float(t.importe)
+        key = (t.category.nombre if t.category else 'Sin categoría',
+               (t.category.tipo if t.category else 'gasto'))
+        por_cat[key] = por_cat.get(key, 0.0) + float(t.importe)
 
-    # ---------- Chart 1: gasto por categoría ----------
-    spent_by_cat = {}
+    # ---------- Datos para los charts ----------
+
+    # 1) Gasto por categoría (descendente)
+    gasto_por_cat = {}
     for t in tx:
-        if t.category and (t.category.tipo or '').strip().lower() != 'ingreso':
-            spent_by_cat[t.category_id] = spent_by_cat.get(t.category_id, 0.0) + float(t.importe)
+        if t.category and (t.category.tipo or '').strip().lower() == 'gasto':
+            gasto_por_cat[t.category.nombre] = gasto_por_cat.get(t.category.nombre, 0.0) + float(t.importe)
+    gasto_rank = sorted(gasto_por_cat.items(), key=lambda x: x[1], reverse=True)
+    labels_cat_desc = [name for name, _ in gasto_rank]
+    values_cat_desc = [val for _, val in gasto_rank]
 
-    cats_all = Category.query.all()
-    cats_by_id = {c.id: c for c in cats_all}
-
-    labels_exp = []
-    data_exp = []
-    for cat_id, total in sorted(spent_by_cat.items(), key=lambda kv: kv[1], reverse=True):
-        nombre = cats_by_id.get(cat_id).nombre if cats_by_id.get(cat_id) else 'Sin categoría'
-        labels_exp.append(nombre)
-        data_exp.append(round(total, 2))
-
-    # ---------- Chart 2: Presupuesto vs Gastado ----------
+    # 2) Presupuesto vs Gastado (por categoría)
     budget = Budget.query.filter_by(cycle_start=d1).first()
-    budget_by_cat = {}
+    budget_map = {}
     if budget:
         for bl in budget.lines:
-            c = cats_by_id.get(bl.category_id)
-            if not c or (c.tipo or '').strip().lower() == 'ingreso':
-                continue
-            budget_by_cat[bl.category_id] = float(bl.amount or 0)
+            if bl.category and (bl.category.tipo or '').strip().lower() == 'gasto':
+                budget_map[bl.category_id] = float(bl.amount or 0)
 
-    all_cat_ids = sorted(set(budget_by_cat.keys()) | set(spent_by_cat.keys()),
-                         key=lambda k: (cats_by_id.get(k).nombre if cats_by_id.get(k) else ''))
-    labels_bv   = [(cats_by_id.get(k).nombre if cats_by_id.get(k) else f"Cat {k}") for k in all_cat_ids]
-    data_budget = [round(budget_by_cat.get(k, 0.0), 2) for k in all_cat_ids]
-    data_spent  = [round(spent_by_cat.get(k, 0.0), 2) for k in all_cat_ids]
-
-    # ---------- Chart 3: Ingresos vs Gastos (acumulado y diario) ----------
-    from collections import defaultdict
-    daily_ing = defaultdict(float)
-    daily_gas = defaultdict(float)
+    # gastado real por categoría en el ciclo
+    spent_by_cat = {}
     for t in tx:
-        if t.category and (t.category.tipo or '').strip().lower() == 'ingreso':
-            daily_ing[t.fecha] += float(t.importe)
-        else:
-            daily_gas[t.fecha] += float(t.importe)
+        if t.category and (t.category.tipo or '').strip().lower() == 'gasto':
+            spent_by_cat[t.category_id] = spent_by_cat.get(t.category_id, 0.0) + float(t.importe)
 
-    labels_days = []
-    series_ingresos = []      # acumulado
-    series_gastos = []        # acumulado
-    series_ingresos_diario = []
-    series_gastos_diario = []
-    acc_i = acc_g = 0.0
-    d = d1
-    while d < d2:
-        day_i = daily_ing.get(d, 0.0)
-        day_g = daily_gas.get(d, 0.0)
-        series_ingresos_diario.append(round(day_i, 2))
-        series_gastos_diario.append(round(day_g, 2))
+    cats_gasto = Category.query.filter(Category.tipo == 'gasto').order_by(Category.nombre).all()
+    labels_bv   = [c.nombre for c in cats_gasto]
+    data_budget = [float(budget_map.get(c.id, 0.0)) for c in cats_gasto]
+    data_spent  = [float(spent_by_cat.get(c.id, 0.0)) for c in cats_gasto]
 
-        acc_i += day_i
-        acc_g += day_g
-        labels_days.append(d.strftime('%d/%m'))
-        series_ingresos.append(round(acc_i, 2))
-        series_gastos.append(round(acc_g, 2))
-        d += timedelta(days=1)
+    # 3) Ingresos vs Gastos (acumulado por día)
+    n_days = (d2 - d1).days
+    labels_days = [(d1 + timedelta(days=i)).strftime("%d/%m") for i in range(n_days)]
+    daily_income  = [0.0] * n_days
+    daily_expense = [0.0] * n_days
+    for t in tx:
+        idx = (t.fecha - d1).days
+        if 0 <= idx < n_days:
+            if t.category and (t.category.tipo or '').strip().lower() == 'ingreso':
+                daily_income[idx] += float(t.importe)
+            else:
+                daily_expense[idx] += float(t.importe)
 
-    # Navegación ciclos
+    def acumulada(arr):
+        out, s = [], 0.0
+        for v in arr:
+            s += float(v)
+            out.append(round(s, 2))
+        return out
+
+    series_ingresos = acumulada(daily_income)
+    series_gastos   = acumulada(daily_expense)
+
+    # Navegación de ciclos
     prev_anchor, next_anchor = d1 - timedelta(days=1), d2
     prev_y, prev_m = prev_anchor.year, prev_anchor.month
     next_y, next_m = next_anchor.year, next_anchor.month
@@ -227,14 +218,11 @@ def resumen():
         ingresos=ingresos, gastos=gastos, balance=balance,
         saldos=saldos, por_cat=por_cat,
         prev_y=prev_y, prev_m=prev_m, next_y=next_y, next_m=next_m,
-        labels_exp=labels_exp, data_exp=data_exp,
+        # datos charts
+        labels_cat_desc=labels_cat_desc, values_cat_desc=values_cat_desc,
         labels_bv=labels_bv, data_budget=data_budget, data_spent=data_spent,
-        labels_days=labels_days,
-        series_ingresos=series_ingresos, series_gastos=series_gastos,                # acumulado
-        series_ingresos_diario=series_ingresos_diario, series_gastos_diario=series_gastos_diario  # diario
+        labels_days=labels_days, series_ingresos=series_ingresos, series_gastos=series_gastos
     )
-
-
 
 # ---- Transacciones ----
 @app.route('/transacciones')
@@ -333,7 +321,7 @@ def transactions_delete(tx_id):
     flash('Transacción eliminada', 'ok')
     return redirect(url_for('transactions_index'))
 
-# ---- Categorías y Cuentas ----
+# ---- Categorías ----
 @app.route('/categorias', methods=['GET','POST'])
 def categories_index():
     if request.method == 'POST':
@@ -366,6 +354,7 @@ def category_delete(cat_id):
     flash('Categoría eliminada', 'ok')
     return redirect(url_for('categories_index'))
 
+# ---- Cuentas ----
 @app.route('/cuentas', methods=['GET','POST'])
 def accounts_index():
     if request.method == 'POST':
@@ -454,90 +443,6 @@ def goals_delete_contribution(goal_id, aid):
     db.session.delete(a); db.session.commit()
     flash('Aporte eliminado', 'ok')
     return redirect(url_for('goals_index'))
-
-# ---- PRESUPUESTO ----
-@app.route('/presupuesto', methods=['GET', 'POST'])
-def budget_index():
-    y_arg, m_arg = request.args.get('y'), request.args.get('m')
-    if request.method == 'POST':
-        y_arg = request.form.get('y')
-        m_arg = request.form.get('m')
-
-    ref = date(int(y_arg), int(m_arg), CYCLE_START_DAY) if y_arg and m_arg else date.today()
-    d1, d2 = cycle_bounds(ref, CYCLE_START_DAY)
-
-    budget = Budget.query.filter_by(cycle_start=d1).first()
-    if request.method == 'POST':
-        if not budget:
-            budget = Budget(cycle_start=d1)
-            db.session.add(budget)
-
-        income_estimated_s = (request.form.get('income_estimated') or '0').replace(',', '.')
-        try:
-            budget.income_estimated = Decimal(income_estimated_s)
-        except Exception:
-            budget.income_estimated = Decimal('0.00')
-
-        cats_all = Category.query.order_by(Category.nombre).all()
-        gasto_cats = [c for c in cats_all if (c.tipo or '').strip().lower() != 'ingreso']
-
-        current_lines = {bl.category_id: bl for bl in budget.lines}
-        for c in gasto_cats:
-            val_s = (request.form.get(f'cat_{c.id}') or '').strip()
-            if val_s == '':
-                continue
-            try:
-                amt = Decimal(val_s.replace(',', '.'))
-            except Exception:
-                amt = Decimal('0')
-            if amt > 0:
-                if c.id in current_lines:
-                    current_lines[c.id].amount = amt
-                else:
-                    db.session.add(BudgetLine(budget=budget, category_id=c.id, amount=amt))
-            else:
-                if c.id in current_lines:
-                    db.session.delete(current_lines[c.id])
-
-        db.session.commit()
-        flash('Presupuesto guardado', 'ok')
-        return redirect(url_for('budget_index', y=d1.year, m=d1.month))
-
-    cats_all = Category.query.order_by(Category.nombre).all()
-    gasto_cats = [c for c in cats_all if (c.tipo or '').strip().lower() != 'ingreso']
-
-    line_by_cat = {}
-    income_estimated = 0.0
-    if budget:
-        income_estimated = float(budget.income_estimated or 0)
-        for bl in budget.lines:
-            line_by_cat[bl.category_id] = float(bl.amount or 0)
-
-    tx_cycle = Transaction.query.filter(Transaction.fecha >= d1, Transaction.fecha < d2).all()
-    spent_by_cat = {}
-    for t in tx_cycle:
-        if t.category and (t.category.tipo or '').strip().lower() != 'ingreso':
-            spent_by_cat[t.category_id] = spent_by_cat.get(t.category_id, 0.0) + float(t.importe)
-
-    total_budget = sum(line_by_cat.get(c.id, 0.0) for c in gasto_cats)
-    total_spent  = sum(spent_by_cat.get(c.id, 0.0) for c in gasto_cats)
-    total_income_real = sum(float(t.importe) for t in tx_cycle
-                            if t.category and (t.category.tipo or '').strip().lower() == 'ingreso')
-
-    prev_anchor = d1 - timedelta(days=1)
-    next_anchor = d2
-    prev_y, prev_m = prev_anchor.year, prev_anchor.month
-    next_y, next_m = next_anchor.year, next_anchor.month
-
-    return render_template('budget_index.html',
-        d1=d1, d2=d2, fin_inclusivo=d2 - timedelta(days=1),
-        gasto_cats=gasto_cats,
-        line_by_cat=line_by_cat,
-        spent_by_cat=spent_by_cat,
-        income_estimated=income_estimated,
-        total_budget=total_budget, total_spent=total_spent, total_income_real=total_income_real,
-        y=d1.year, m=d1.month, prev_y=prev_y, prev_m=prev_m, next_y=next_y, next_m=next_m
-    )
 
 if __name__ == "__main__":
     app.run(debug=True, use_reloader=False)
