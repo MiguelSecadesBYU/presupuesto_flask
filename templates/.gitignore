@@ -1,0 +1,15 @@
+# venv / cache
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# entorno
+.env
+.env.*
+
+# sqlite local
+*.db
+
+# VS Code
+.vscode/

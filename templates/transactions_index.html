@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Transacciones{% endblock %}
+{% block content %}
+<h1>Transacciones</h1>
+
+<form class="card form-row" method="get">
+  <div>
+    <label>Desde</label>
+    <input type="date" name="desde" value="{{ desde_value }}">
+  </div>
+  <div>
+    <label>Hasta</label>
+    <input type="date" name="hasta" value="{{ hasta_value }}">
+  </div>
+  <div>
+    <label>Cuenta</label>
+    <select name="account_id">
+      <option value="">Todas</option>
+      {% for a in accounts %}
+        <option value="{{a.id}}" {% if account_selected == a.id|string %}selected{% endif %}>{{a.nombre}}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label>Categoría</label>
+    <select name="category_id">
+      <option value="">Todas</option>
+      {% for c in categories %}
+        <option value="{{c.id}}" {% if category_selected == c.id|string %}selected{% endif %}>{{c.nombre}} ({{c.tipo}})</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="grow">
+    <label>Buscar</label>
+    <input type="text" name="q" placeholder="concepto..." value="{{ texto_busqueda }}">
+  </div>
+  <div class="row-end">
+    <button class="btn">Filtrar</button>
+    <a class="btn ghost" href="{{ url_for('transactions_index') }}">Limpiar</a>
+    <a class="btn primary" href="{{ url_for('transactions_new') }}">+ Nueva</a>
+  </div>
+</form>
+
+{% if default_cycle %}
+  <div class="muted" style="margin: -6px 0 10px 6px;">
+    Mostrando el <strong>ciclo actual (25→24)</strong>. Cambia las fechas si quieres otro rango.
+  </div>
+{% endif %}
+
+<div class="card">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Fecha</th><th>Concepto</th><th>Cuenta</th><th>Categoría</th><th class="right">Importe</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in items %}
+      <tr>
+        <td>{{ t.fecha.strftime('%Y-%m-%d') }}</td>
+        <td>
+          <div class="concepto">{{ t.concepto }}</div>
+          {% if t.nota %}<div class="nota">{{ t.nota }}</div>{% endif %}
+        </td>
+        <td>{{ t.account.nombre }}</td>
+        <td><span class="badge {{ 'ing' if t.category.tipo=='ingreso' else 'gas' }}">{{ t.category.nombre }}</span></td>
+        <td class="right {{ 'pos' if t.category.tipo=='ingreso' else 'neg' }}">€ {{ '%.2f'|format(t.importe) }}</td>
+        <td class="right">
+          <a class="btn" href="{{ url_for('transactions_edit', tx_id=t.id) }}">Editar</a>
+          <form style="display:inline" method="post" action="{{ url_for('transactions_delete', tx_id=t.id) }}" onsubmit="return confirm('¿Eliminar transacción?')">
+            <button class="btn danger">Eliminar</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">Sin resultados.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

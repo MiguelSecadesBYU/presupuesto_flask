@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Objetivos{% endblock %}
+{% block content %}
+<h1>Objetivos de ahorro</h1>
+
+<form class="card form-row" method="post">
+  <div class="grow">
+    <label>Nombre del objetivo</label>
+    <input type="text" name="nombre" placeholder="p.ej. Fondo de emergencia" required>
+  </div>
+  <div>
+    <label>Importe objetivo (€)</label>
+    <input type="number" step="0.01" name="monto_objetivo" placeholder="0.00" required>
+  </div>
+  <div>
+    <label>Fecha límite (opcional)</label>
+    <input type="date" name="fecha_limite">
+  </div>
+  <div class="grow">
+    <label>Notas (opcional)</label>
+    <input type="text" name="nota" placeholder="Motivo del ahorro...">
+  </div>
+  <div class="row-end">
+    <button class="btn primary">+ Crear objetivo</button>
+  </div>
+</form>
+
+<div class="card">
+  <div class="card-title">Tus objetivos</div>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Objetivo</th>
+        <th class="right">Progreso</th>
+        <th class="right">Aportes</th>
+        <th class="right">Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for g in goals %}
+      <tr>
+        <td>
+          <div class="concepto">{{ g.nombre }}</div>
+          <div class="muted">
+            Meta: € {{ '%.2f'|format(g.monto_objetivo) }}
+            {% if g.fecha_limite %} • Límite: {{ g.fecha_limite.strftime('%Y-%m-%d') }}{% endif %}
+            {% if g.nota %} • {{ g.nota }}{% endif %}
+          </div>
+          <div class="progress">
+            <div class="progress-bar" style="width: {{ '%0.2f'|format(g.porcentaje) }}%"></div>
+          </div>
+          <small class="muted">
+            Ahorrado: € {{ '%.2f'|format(g.total_aportado) }} ({{ '%0.1f'|format(g.porcentaje) }}%)
+          </small>
+        </td>
+        <td class="right">
+          € {{ '%.2f'|format(g.total_aportado) }} / € {{ '%.2f'|format(g.monto_objetivo) }}
+        </td>
+        <td class="right">
+          {% if g.aportes|length == 0 %}
+            <span class="muted">—</span>
+          {% else %}
+            <details>
+              <summary>{{ g.aportes|length }} registros</summary>
+              <ul style="margin:6px 0 0 16px;padding:0">
+                {% for a in g.aportes|sort(attribute='fecha') %}
+                  <li>
+                    {{ a.fecha.strftime('%Y-%m-%d') }} — € {{ '%.2f'|format(a.monto) }}
+                    {% if a.comentario %} ({{ a.comentario }}){% endif %}
+                    <form method="post" action="{{ url_for('goals_delete_contribution', goal_id=g.id, aid=a.id) }}" style="display:inline" onsubmit="return confirm('¿Eliminar aporte?')">
+                      <button class="btn danger" style="padding:2px 8px;margin-left:6px">Eliminar</button>
+                    </form>
+                  </li>
+                {% endfor %}
+              </ul>
+            </details>
+          {% endif %}
+        </td>
+        <td class="right">
+          <form style="display:inline" method="post" action="{{ url_for('goals_delete', goal_id=g.id) }}" onsubmit="return confirm('¿Eliminar objetivo y sus aportes?')">
+            <button class="btn danger">Eliminar objetivo</button>
+          </form>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="4">
+          <form class="form-row" method="post" action="{{ url_for('goals_add_contribution', goal_id=g.id) }}">
+            <div>
+              <label>Fecha</label>
+              <input type="date" name="fecha" value="{{ (namespace().now or '') }}">
+            </div>
+            <div>
+              <label>Aporte (€)</label>
+              <input type="number" step="0.01" name="monto" placeholder="0.00" required>
+            </div>
+            <div class="grow">
+              <label>Comentario</label>
+              <input type="text" name="comentario" placeholder="p.ej. Traspaso desde Banco">
+            </div>
+            <div class="row-end">
+              <button class="btn">Añadir aporte</button>
+            </div>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">Aún no tienes objetivos.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

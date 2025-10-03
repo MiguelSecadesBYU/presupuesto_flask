@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Cuentas{% endblock %}
+{% block content %}
+<h1>Cuentas</h1>
+
+<p class="muted">Aquí puedes dar de alta las cuentas (Banco, Efectivo, Tarjeta, etc.) y definir su saldo inicial. 
+Estas cuentas se usarán luego al registrar transacciones.</p>
+
+<form class="card form-row" method="post">
+  <div class="grow">
+    <label>Nombre</label>
+    <input type="text" name="nombre" placeholder="p.ej. Banco Principal" required>
+  </div>
+  <div>
+    <label>Saldo inicial (€)</label>
+    <input type="number" step="0.01" name="saldo_inicial" placeholder="0.00">
+  </div>
+  <div class="row-end">
+    <button class="btn primary">+ Añadir</button>
+  </div>
+</form>
+
+<div class="card">
+  <div class="card-title">Listado de cuentas</div>
+  <table class="table">
+    <thead><tr><th>Nombre</th><th class="right">Saldo inicial</th><th class="right">Acciones</th></tr></thead>
+    <tbody>
+      {% for a in accounts %}
+      <tr>
+        <td>{{ a.nombre }}</td>
+        <td class="right">€ {{ '%.2f'|format(a.saldo_inicial) }}</td>
+        <td class="right">
+          <form method="post" action="{{ url_for('accounts_delete', acc_id=a.id) }}" 
+                onsubmit="return confirm('¿Eliminar cuenta?')">
+            <button class="btn danger">Eliminar</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="muted">No hay cuentas registradas.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

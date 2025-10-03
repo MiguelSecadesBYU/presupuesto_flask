@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Resumen — Ciclo {{ d1.strftime('%d/%m/%Y') }} – {{ fin_inclusivo.strftime('%d/%m/%Y') }}{% endblock %}
+{% block content %}
+<h1>Ciclo {{ d1.strftime('%d/%m/%Y') }} – {{ fin_inclusivo.strftime('%d/%m/%Y') }}</h1>
+
+<div class="grid">
+  <div class="card"><div class="card-title">Ingresos</div><div class="kpi ok">€ {{ '%.2f'|format(ingresos) }}</div></div>
+  <div class="card"><div class="card-title">Gastos</div><div class="kpi error">€ {{ '%.2f'|format(gastos) }}</div></div>
+  <div class="card"><div class="card-title">Balance</div><div class="kpi {{ 'ok' if balance>=0 else 'error' }}">€ {{ '%.2f'|format(balance) }}</div></div>
+</div>
+
+<div class="row-between mb">
+  <div>
+    <a class="btn" href="{{ url_for('resumen', y=prev_y, m=prev_m) }}">← Ciclo anterior</a>
+    <a class="btn" href="{{ url_for('resumen', y=next_y, m=next_m) }}">Ciclo siguiente →</a>
+  </div>
+  <a class="btn primary" href="{{ url_for('transactions_new') }}">+ Nueva transacción</a>
+</div>
+
+<div class="card">
+  <div class="card-title">Saldos por cuenta</div>
+  <table class="table">
+    <thead><tr><th>Cuenta</th><th class="right">Saldo</th></tr></thead>
+    <tbody>
+      {% for s in saldos %}
+        <tr><td>{{ s.cuenta.nombre }}</td><td class="right"><strong>€ {{ '%.2f'|format(s.saldo) }}</strong></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <div class="card-title">Totales del ciclo por categoría</div>
+  <table class="table">
+    <thead><tr><th>Categoría</th><th>Tipo</th><th class="right">Total</th></tr></thead>
+    <tbody>
+      {% for (nombre, tipo), total in por_cat.items() %}
+        <tr>
+          <td>{{ nombre }}</td>
+          <td><span class="badge {{ 'ing' if tipo=='ingreso' else 'gas' }}">{{ tipo }}</span></td>
+          <td class="right">€ {{ '%.2f'|format(total) }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

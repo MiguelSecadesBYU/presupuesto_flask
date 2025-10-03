@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Categorías{% endblock %}
+{% block content %}
+<h1>Categorías</h1>
+
+<form class="card form-row" method="post">
+  <div class="grow">
+    <label>Nombre</label>
+    <input type="text" name="nombre" placeholder="p.ej. Restaurantes" required>
+  </div>
+  <div>
+    <label>Tipo</label>
+    <select name="tipo">
+      <option value="gasto">Gasto</option>
+      <option value="ingreso">Ingreso</option>
+    </select>
+  </div>
+  <div class="row-end">
+    <button class="btn primary">+ Añadir</button>
+  </div>
+</form>
+
+<div class="card">
+  <table class="table">
+    <thead><tr><th>Nombre</th><th>Tipo</th><th class="right">Acciones</th></tr></thead>
+    <tbody>
+      {% for c in categories %}
+      <tr>
+        <td>{{ c.nombre }}</td>
+        <td><span class="badge {{ 'ing' if c.tipo=='ingreso' else 'gas' }}">{{ c.tipo }}</span></td>
+        <td class="right">
+          <form method="post" action="{{ url_for('category_delete', cat_id=c.id) }}" onsubmit="return confirm('¿Eliminar categoría?')">
+            <button class="btn danger">Eliminar</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="muted">No hay categorías.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
