@@ -154,15 +154,14 @@ def resumen():
         tipo   = (t.category.tipo if t.category else 'gasto')
         por_cat[(nombre, tipo)] = por_cat.get((nombre, tipo), 0.0) + float(t.importe)
 
-    # ---------- Datos para CHARTS ----------
-    cats_all = Category.query.all()
-    cats_by_id = {c.id: c for c in cats_all}
-
-    # 1) Gasto por categoría (solo gasto)
+    # ---------- Datos Chart 1: gasto por categoría ----------
     spent_by_cat = {}
     for t in tx:
         if t.category and (t.category.tipo or '').strip().lower() != 'ingreso':
             spent_by_cat[t.category_id] = spent_by_cat.get(t.category_id, 0.0) + float(t.importe)
+
+    cats_all = Category.query.all()
+    cats_by_id = {c.id: c for c in cats_all}
 
     labels_exp = []
     data_exp = []
@@ -171,7 +170,7 @@ def resumen():
         labels_exp.append(nombre)
         data_exp.append(round(total, 2))
 
-    # 2) Presupuesto vs Gastado por categoría (ciclo actual)
+    # ---------- Datos Chart 2: Presupuesto vs Gastado ----------
     budget = Budget.query.filter_by(cycle_start=d1).first()
     budget_by_cat = {}
     if budget:
@@ -181,15 +180,13 @@ def resumen():
                 continue
             budget_by_cat[bl.category_id] = float(bl.amount or 0)
 
-    all_cat_ids = sorted(
-        set(list(budget_by_cat.keys()) + list(spent_by_cat.keys())),
-        key=lambda k: (cats_by_id.get(k).nombre if cats_by_id.get(k) else '')
-    )
+    all_cat_ids = sorted(set(budget_by_cat.keys()) | set(spent_by_cat.keys()),
+                         key=lambda k: (cats_by_id.get(k).nombre if cats_by_id.get(k) else ''))
     labels_bv   = [(cats_by_id.get(k).nombre if cats_by_id.get(k) else f"Cat {k}") for k in all_cat_ids]
     data_budget = [round(budget_by_cat.get(k, 0.0), 2) for k in all_cat_ids]
     data_spent  = [round(spent_by_cat.get(k, 0.0), 2) for k in all_cat_ids]
 
-    # 3) Ingresos vs Gastos acumulados por día del ciclo
+    # ---------- Datos Chart 3: Ingresos vs Gastos acumulados por día ----------
     from collections import defaultdict
     daily_ing = defaultdict(float)
     daily_gas = defaultdict(float)
@@ -197,14 +194,12 @@ def resumen():
         if t.category and (t.category.tipo or '').strip().lower() == 'ingreso':
             daily_ing[t.fecha] += float(t.importe)
         else:
-            # Trata todo lo que no sea ingreso como gasto
             daily_gas[t.fecha] += float(t.importe)
 
     labels_days = []
     series_ingresos = []
-    series_gastos   = []
-    acc_i = 0.0
-    acc_g = 0.0
+    series_gastos = []
+    acc_i = acc_g = 0.0
     d = d1
     while d < d2:
         acc_i += daily_ing.get(d, 0.0)
@@ -219,17 +214,17 @@ def resumen():
     prev_y, prev_m = prev_anchor.year, prev_anchor.month
     next_y, next_m = next_anchor.year, next_anchor.month
 
-    return render_template('resumen.html',
+    return render_template(
+        'resumen.html',
         d1=d1, fin_inclusivo=fin_inclusivo,
         ingresos=ingresos, gastos=gastos, balance=balance,
         saldos=saldos, por_cat=por_cat,
         prev_y=prev_y, prev_m=prev_m, next_y=next_y, next_m=next_m,
-        # datos para charts existentes
         labels_exp=labels_exp, data_exp=data_exp,
         labels_bv=labels_bv, data_budget=data_budget, data_spent=data_spent,
-        # datos nuevo chart
         labels_days=labels_days, series_ingresos=series_ingresos, series_gastos=series_gastos
     )
+
 
 # ---- Transacciones ----
 @app.route('/transacciones')
