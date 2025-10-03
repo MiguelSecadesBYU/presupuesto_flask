@@ -17,7 +17,6 @@
   <a class="btn primary" href="{{ url_for('transactions_new') }}">+ Nueva transacción</a>
 </div>
 
-<!-- Charts -->
 <div class="grid">
   <div class="card">
     <div class="card-title">Gasto por categoría (descendente)</div>
@@ -30,6 +29,13 @@
     <div class="card-title">Presupuesto vs Gastado (por categoría)</div>
     <div style="height: 320px;">
       <canvas id="chartBudgetVsSpent"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Ingresos vs Gastos (acumulado por día)</div>
+    <div style="height: 320px;">
+      <canvas id="chartIngVsGas"></canvas>
     </div>
   </div>
 </div>
@@ -62,49 +68,58 @@
   </table>
 </div>
 
-<!-- Chart.js + scripts de página -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-  // Datos desde servidor
-  const labelsExp   = {{ labels_exp|tojson }};
-  const dataExp     = {{ data_exp|tojson }};
-  const labelsBV    = {{ labels_bv|tojson }};
-  const dataBudget  = {{ data_budget|tojson }};
-  const dataSpent   = {{ data_spent|tojson }};
+  // --- Datos con fallback seguro ---
+  const labelsExp   = {{ labels_exp  | default([]) | tojson }};
+  const dataExp     = {{ data_exp    | default([]) | tojson }};
+  const labelsBV    = {{ labels_bv   | default([]) | tojson }};
+  const dataBudget  = {{ data_budget | default([]) | tojson }};
+  const dataSpent   = {{ data_spent  | default([]) | tojson }};
 
-  // Gasto por categoría (barra)
+  const labelsDays  = {{ labels_days      | default([]) | tojson }};
+  const serieIng    = {{ series_ingresos  | default([]) | tojson }};
+  const serieGas    = {{ series_gastos    | default([]) | tojson }};
+
+  // Gasto por categoría
   const el1 = document.getElementById('chartGastoCat');
   if (el1 && labelsExp.length) {
     new Chart(el1.getContext('2d'), {
       type: 'bar',
-      data: {
-        labels: labelsExp,
-        datasets: [{ label: 'Gasto (€)', data: dataExp }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: { y: { beginAtZero: true } }
-      }
+      data: { labels: labelsExp, datasets: [{ label: 'Gasto (€)', data: dataExp }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
     });
   }
 
-  // Presupuesto vs Gastado (barras agrupadas)
+  // Presupuesto vs Gastado
   const el2 = document.getElementById('chartBudgetVsSpent');
   if (el2 && labelsBV.length) {
     new Chart(el2.getContext('2d'), {
       type: 'bar',
+      data: { labels: labelsBV, datasets: [
+        { label: 'Presupuestado', data: dataBudget },
+        { label: 'Gastado',       data: dataSpent }
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+    });
+  }
+
+  // Ingresos vs Gastos acumulados (línea)
+  const el3 = document.getElementById('chartIngVsGas');
+  if (el3 && labelsDays.length && (serieIng.length || serieGas.length)) {
+    new Chart(el3.getContext('2d'), {
+      type: 'line',
       data: {
-        labels: labelsBV,
+        labels: labelsDays,
         datasets: [
-          { label: 'Presupuestado', data: dataBudget },
-          { label: 'Gastado',       data: dataSpent }
+          { label: 'Ingresos acumulados', data: serieIng, tension: 0.3, fill: false },
+          { label: 'Gastos acumulados',   data: serieGas, tension: 0.3, fill: false }
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
         scales: { y: { beginAtZero: true } }
       }
     });

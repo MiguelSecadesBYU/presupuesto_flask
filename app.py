@@ -147,7 +147,7 @@ def resumen():
         total_movs = sum(float(t.signed_amount) for t in movs)
         saldos.append({'cuenta': c, 'saldo': float(c.saldo_inicial) + total_movs})
 
-    # Totales por categoría (tabla existente)
+    # Totales por categoría (tabla)
     por_cat = {}
     for t in tx:
         nombre = t.category.nombre if t.category else 'Sin categoría'
@@ -158,7 +158,7 @@ def resumen():
     cats_all = Category.query.all()
     cats_by_id = {c.id: c for c in cats_all}
 
-    # Gasto por categoría (solo gasto)
+    # 1) Gasto por categoría (solo gasto)
     spent_by_cat = {}
     for t in tx:
         if t.category and (t.category.tipo or '').strip().lower() != 'ingreso':
@@ -171,7 +171,7 @@ def resumen():
         labels_exp.append(nombre)
         data_exp.append(round(total, 2))
 
-    # Presupuesto vs Gastado por categoría (ciclo actual)
+    # 2) Presupuesto vs Gastado por categoría (ciclo actual)
     budget = Budget.query.filter_by(cycle_start=d1).first()
     budget_by_cat = {}
     if budget:
@@ -189,6 +189,31 @@ def resumen():
     data_budget = [round(budget_by_cat.get(k, 0.0), 2) for k in all_cat_ids]
     data_spent  = [round(spent_by_cat.get(k, 0.0), 2) for k in all_cat_ids]
 
+    # 3) Ingresos vs Gastos acumulados por día del ciclo
+    from collections import defaultdict
+    daily_ing = defaultdict(float)
+    daily_gas = defaultdict(float)
+    for t in tx:
+        if t.category and (t.category.tipo or '').strip().lower() == 'ingreso':
+            daily_ing[t.fecha] += float(t.importe)
+        else:
+            # Trata todo lo que no sea ingreso como gasto
+            daily_gas[t.fecha] += float(t.importe)
+
+    labels_days = []
+    series_ingresos = []
+    series_gastos   = []
+    acc_i = 0.0
+    acc_g = 0.0
+    d = d1
+    while d < d2:
+        acc_i += daily_ing.get(d, 0.0)
+        acc_g += daily_gas.get(d, 0.0)
+        labels_days.append(d.strftime('%d/%m'))
+        series_ingresos.append(round(acc_i, 2))
+        series_gastos.append(round(acc_g, 2))
+        d += timedelta(days=1)
+
     # Navegación ciclos
     prev_anchor, next_anchor = d1 - timedelta(days=1), d2
     prev_y, prev_m = prev_anchor.year, prev_anchor.month
@@ -199,9 +224,11 @@ def resumen():
         ingresos=ingresos, gastos=gastos, balance=balance,
         saldos=saldos, por_cat=por_cat,
         prev_y=prev_y, prev_m=prev_m, next_y=next_y, next_m=next_m,
-        # --- datos para charts ---
+        # datos para charts existentes
         labels_exp=labels_exp, data_exp=data_exp,
-        labels_bv=labels_bv, data_budget=data_budget, data_spent=data_spent
+        labels_bv=labels_bv, data_budget=data_budget, data_spent=data_spent,
+        # datos nuevo chart
+        labels_days=labels_days, series_ingresos=series_ingresos, series_gastos=series_gastos
     )
 
 # ---- Transacciones ----
