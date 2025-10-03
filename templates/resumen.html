@@ -18,6 +18,7 @@
 </div>
 
 <div class="grid">
+  <!-- Chart 1 -->
   <div class="card">
     <div class="card-title">Gasto por categoría (descendente)</div>
     <div style="height: 320px;">
@@ -25,6 +26,7 @@
     </div>
   </div>
 
+  <!-- Chart 2 -->
   <div class="card">
     <div class="card-title">Presupuesto vs Gastado (por categoría)</div>
     <div style="height: 320px;">
@@ -32,8 +34,15 @@
     </div>
   </div>
 
+  <!-- Chart 3 con toggle -->
   <div class="card">
-    <div class="card-title">Ingresos vs Gastos (acumulado por día)</div>
+    <div class="row-between">
+      <div class="card-title">Ingresos vs Gastos</div>
+      <div>
+        <button id="btnModeAcum" class="btn primary" type="button">Acumulado</button>
+        <button id="btnModeDia" class="btn" type="button">Diario</button>
+      </div>
+    </div>
     <div style="height: 320px;">
       <canvas id="chartIngVsGas"></canvas>
     </div>
@@ -68,7 +77,9 @@
   </table>
 </div>
 
+<!-- Chart.js (si ya lo cargas en base.html, puedes quitar esta línea) -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <script>
   // --- Datos con fallback seguro ---
   const labelsExp   = {{ labels_exp  | default([]) | tojson }};
@@ -77,52 +88,97 @@
   const dataBudget  = {{ data_budget | default([]) | tojson }};
   const dataSpent   = {{ data_spent  | default([]) | tojson }};
 
-  const labelsDays  = {{ labels_days      | default([]) | tojson }};
-  const serieIng    = {{ series_ingresos  | default([]) | tojson }};
-  const serieGas    = {{ series_gastos    | default([]) | tojson }};
+  const labelsDays   = {{ labels_days            | default([]) | tojson }};
+  const serieIngAcum = {{ series_ingresos        | default([]) | tojson }};
+  const serieGasAcum = {{ series_gastos          | default([]) | tojson }};
+  const serieIngDia  = {{ series_ingresos_diario | default([]) | tojson }};
+  const serieGasDia  = {{ series_gastos_diario   | default([]) | tojson }};
 
-  // Gasto por categoría
+  // --- Chart 1: Gasto por categoría ---
   const el1 = document.getElementById('chartGastoCat');
   if (el1 && labelsExp.length) {
     new Chart(el1.getContext('2d'), {
       type: 'bar',
       data: { labels: labelsExp, datasets: [{ label: 'Gasto (€)', data: dataExp }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
-    });
-  }
-
-  // Presupuesto vs Gastado
-  const el2 = document.getElementById('chartBudgetVsSpent');
-  if (el2 && labelsBV.length) {
-    new Chart(el2.getContext('2d'), {
-      type: 'bar',
-      data: { labels: labelsBV, datasets: [
-        { label: 'Presupuestado', data: dataBudget },
-        { label: 'Gastado',       data: dataSpent }
-      ]},
-      options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
-    });
-  }
-
-  // Ingresos vs Gastos acumulados (línea)
-  const el3 = document.getElementById('chartIngVsGas');
-  if (el3 && labelsDays.length && (serieIng.length || serieGas.length)) {
-    new Chart(el3.getContext('2d'), {
-      type: 'line',
-      data: {
-        labels: labelsDays,
-        datasets: [
-          { label: 'Ingresos acumulados', data: serieIng, tension: 0.3, fill: false },
-          { label: 'Gastos acumulados',   data: serieGas, tension: 0.3, fill: false }
-        ]
-      },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
         scales: { y: { beginAtZero: true } }
       }
     });
   }
+
+  // --- Chart 2: Presupuesto vs Gastado ---
+  const el2 = document.getElementById('chartBudgetVsSpent');
+  if (el2 && labelsBV.length) {
+    new Chart(el2.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: labelsBV,
+        datasets: [
+          { label: 'Presupuestado', data: dataBudget },
+          { label: 'Gasto',         data: dataSpent }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+  }
+
+  // --- Chart 3: Ingresos vs Gastos (toggle Acumulado/Diario) ---
+  const el3 = document.getElementById('chartIngVsGas');
+  let mode = 'acum'; // 'acum' | 'dia'
+  const btnAcum = document.getElementById('btnModeAcum');
+  const btnDia  = document.getElementById('btnModeDia');
+  let chart3 = null;
+
+  function buildConfig(modeNow) {
+    const isAcum = modeNow === 'acum';
+    return {
+      // Cambiamos el tipo base según el modo
+      type: isAcum ? 'line' : 'bar',
+      data: {
+        labels: labelsDays,
+        datasets: isAcum
+          ? [
+              { label: 'Ingresos acumulados', data: serieIngAcum, tension: 0.3, fill: false },
+              { label: 'Gastos acumulados',   data: serieGasAcum, tension: 0.3, fill: false }
+            ]
+          : [
+              { label: 'Ingresos diarios', data: serieIngDia },
+              { label: 'Gastos diarios',   data: serieGasDia }
+            ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: { y: { beginAtZero: true } }
+      }
+    };
+  }
+
+  function renderChart3() {
+    if (!el3 || !labelsDays.length) return;
+    const ctx = el3.getContext('2d');
+    if (chart3) chart3.destroy();
+    chart3 = new Chart(ctx, buildConfig(mode));
+  }
+
+  function setMode(newMode) {
+    if (mode === newMode) return;
+    mode = newMode;
+    btnAcum.classList.toggle('primary', mode === 'acum');
+    btnDia.classList.toggle('primary',  mode === 'dia');
+    renderChart3();
+  }
+
+  if (btnAcum && btnDia) {
+    btnAcum.addEventListener('click', () => setMode('acum'));
+    btnDia.addEventListener('click',  () => setMode('dia'));
+  }
+
+  renderChart3(); // inicial (acumulado)
 </script>
 {% endblock %}

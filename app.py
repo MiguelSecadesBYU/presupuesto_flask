@@ -147,14 +147,14 @@ def resumen():
         total_movs = sum(float(t.signed_amount) for t in movs)
         saldos.append({'cuenta': c, 'saldo': float(c.saldo_inicial) + total_movs})
 
-    # Totales por categoría (tabla)
+    # Totales del ciclo por categoría (tabla)
     por_cat = {}
     for t in tx:
         nombre = t.category.nombre if t.category else 'Sin categoría'
         tipo   = (t.category.tipo if t.category else 'gasto')
         por_cat[(nombre, tipo)] = por_cat.get((nombre, tipo), 0.0) + float(t.importe)
 
-    # ---------- Datos Chart 1: gasto por categoría ----------
+    # ---------- Chart 1: gasto por categoría ----------
     spent_by_cat = {}
     for t in tx:
         if t.category and (t.category.tipo or '').strip().lower() != 'ingreso':
@@ -170,7 +170,7 @@ def resumen():
         labels_exp.append(nombre)
         data_exp.append(round(total, 2))
 
-    # ---------- Datos Chart 2: Presupuesto vs Gastado ----------
+    # ---------- Chart 2: Presupuesto vs Gastado ----------
     budget = Budget.query.filter_by(cycle_start=d1).first()
     budget_by_cat = {}
     if budget:
@@ -186,7 +186,7 @@ def resumen():
     data_budget = [round(budget_by_cat.get(k, 0.0), 2) for k in all_cat_ids]
     data_spent  = [round(spent_by_cat.get(k, 0.0), 2) for k in all_cat_ids]
 
-    # ---------- Datos Chart 3: Ingresos vs Gastos acumulados por día ----------
+    # ---------- Chart 3: Ingresos vs Gastos (acumulado y diario) ----------
     from collections import defaultdict
     daily_ing = defaultdict(float)
     daily_gas = defaultdict(float)
@@ -197,13 +197,20 @@ def resumen():
             daily_gas[t.fecha] += float(t.importe)
 
     labels_days = []
-    series_ingresos = []
-    series_gastos = []
+    series_ingresos = []      # acumulado
+    series_gastos = []        # acumulado
+    series_ingresos_diario = []
+    series_gastos_diario = []
     acc_i = acc_g = 0.0
     d = d1
     while d < d2:
-        acc_i += daily_ing.get(d, 0.0)
-        acc_g += daily_gas.get(d, 0.0)
+        day_i = daily_ing.get(d, 0.0)
+        day_g = daily_gas.get(d, 0.0)
+        series_ingresos_diario.append(round(day_i, 2))
+        series_gastos_diario.append(round(day_g, 2))
+
+        acc_i += day_i
+        acc_g += day_g
         labels_days.append(d.strftime('%d/%m'))
         series_ingresos.append(round(acc_i, 2))
         series_gastos.append(round(acc_g, 2))
@@ -222,8 +229,11 @@ def resumen():
         prev_y=prev_y, prev_m=prev_m, next_y=next_y, next_m=next_m,
         labels_exp=labels_exp, data_exp=data_exp,
         labels_bv=labels_bv, data_budget=data_budget, data_spent=data_spent,
-        labels_days=labels_days, series_ingresos=series_ingresos, series_gastos=series_gastos
+        labels_days=labels_days,
+        series_ingresos=series_ingresos, series_gastos=series_gastos,                # acumulado
+        series_ingresos_diario=series_ingresos_diario, series_gastos_diario=series_gastos_diario  # diario
     )
+
 
 
 # ---- Transacciones ----
