@@ -37,11 +37,12 @@ class Transaction(db.Model):
     category = db.relationship('Category', backref=db.backref('transactions', lazy=True))
 
     @property
-    def signed_amount(self):
+    def signed_amount(self) -> Decimal:
         if self.category and self.category.tipo == 'ingreso':
             return Decimal(self.importe or 0)
         return -Decimal(self.importe or 0)
 
+# ---- Objetivos de ahorro ----
 class Goal(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(120), nullable=False)
@@ -51,11 +52,11 @@ class Goal(db.Model):
     aportes = db.relationship('GoalContribution', backref='goal', cascade='all, delete-orphan')
 
     @property
-    def total_aportado(self):
+    def total_aportado(self) -> Decimal:
         return sum((a.monto or Decimal('0')) for a in self.aportes) or Decimal('0')
 
     @property
-    def porcentaje(self):
+    def porcentaje(self) -> float:
         if not self.monto_objetivo or Decimal(self.monto_objetivo) == 0:
             return 0.0
         return float((self.total_aportado / Decimal(self.monto_objetivo)) * 100)
@@ -67,9 +68,10 @@ class GoalContribution(db.Model):
     monto = db.Column(db.Numeric(12, 2), nullable=False)
     comentario = db.Column(db.String(200))
 
+# ---- Presupuesto por ciclo ----
 class Budget(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    cycle_start = db.Column(db.Date, nullable=False, unique=True)
+    cycle_start = db.Column(db.Date, nullable=False, unique=True)  # inicio del ciclo (25)
     income_estimated = db.Column(db.Numeric(12, 2), default=0)
     note = db.Column(db.Text)
     lines = db.relationship('BudgetLine', backref='budget', cascade='all, delete-orphan')
@@ -108,6 +110,7 @@ def parse_date(s, default=None):
         return default
 
 def cycle_bounds(ref: date, start_day: int = CYCLE_START_DAY):
+    """(inicio_inclusivo, fin_exclusivo) del ciclo que contiene ref."""
     start = date(ref.year, ref.month, start_day)
     if ref < start:
         start = date(start.year - 1, 12, start_day) if start.month == 1 else date(start.year, start.month - 1, start_day)
@@ -124,14 +127,19 @@ def home():
 def resumen():
     y_arg, m_arg = request.args.get('y'), request.args.get('m')
     ref = date(int(y_arg), int(m_arg), CYCLE_START_DAY) if y_arg and m_arg else date.today()
+
     d1, d2 = cycle_bounds(ref, CYCLE_START_DAY)
     fin_inclusivo = d2 - timedelta(days=1)
 
+    # Movimientos del ciclo
     tx = Transaction.query.filter(Transaction.fecha >= d1, Transaction.fecha < d2).all()
-    ingresos = sum(float(t.importe) for t in tx if t.category and t.category.tipo == 'ingreso')
-    gastos   = sum(float(t.importe) for t in tx if t.category and t.category.tipo == 'gasto')
+
+    # KPIs
+    ingresos = sum(float(t.importe) for t in tx if t.category and (t.category.tipo or '').lower() == 'ingreso')
+    gastos   = sum(float(t.importe) for t in tx if t.category and (t.category.tipo or '').lower() != 'ingreso')
     balance  = ingresos - gastos
 
+    # Saldos por cuenta
     cuentas = Account.query.order_by(Account.nombre).all()
     saldos = []
     for c in cuentas:
@@ -139,11 +147,49 @@ def resumen():
         total_movs = sum(float(t.signed_amount) for t in movs)
         saldos.append({'cuenta': c, 'saldo': float(c.saldo_inicial) + total_movs})
 
+    # Totales por categoría (tabla existente)
     por_cat = {}
     for t in tx:
-        key = (t.category.nombre, t.category.tipo) if t.category else ('Sin categoría', 'gasto')
-        por_cat[key] = por_cat.get(key, 0.0) + float(t.importe)
+        nombre = t.category.nombre if t.category else 'Sin categoría'
+        tipo   = (t.category.tipo if t.category else 'gasto')
+        por_cat[(nombre, tipo)] = por_cat.get((nombre, tipo), 0.0) + float(t.importe)
 
+    # ---------- Datos para CHARTS ----------
+    cats_all = Category.query.all()
+    cats_by_id = {c.id: c for c in cats_all}
+
+    # Gasto por categoría (solo gasto)
+    spent_by_cat = {}
+    for t in tx:
+        if t.category and (t.category.tipo or '').strip().lower() != 'ingreso':
+            spent_by_cat[t.category_id] = spent_by_cat.get(t.category_id, 0.0) + float(t.importe)
+
+    labels_exp = []
+    data_exp = []
+    for cat_id, total in sorted(spent_by_cat.items(), key=lambda kv: kv[1], reverse=True):
+        nombre = cats_by_id.get(cat_id).nombre if cats_by_id.get(cat_id) else 'Sin categoría'
+        labels_exp.append(nombre)
+        data_exp.append(round(total, 2))
+
+    # Presupuesto vs Gastado por categoría (ciclo actual)
+    budget = Budget.query.filter_by(cycle_start=d1).first()
+    budget_by_cat = {}
+    if budget:
+        for bl in budget.lines:
+            c = cats_by_id.get(bl.category_id)
+            if not c or (c.tipo or '').strip().lower() == 'ingreso':
+                continue
+            budget_by_cat[bl.category_id] = float(bl.amount or 0)
+
+    all_cat_ids = sorted(
+        set(list(budget_by_cat.keys()) + list(spent_by_cat.keys())),
+        key=lambda k: (cats_by_id.get(k).nombre if cats_by_id.get(k) else '')
+    )
+    labels_bv   = [(cats_by_id.get(k).nombre if cats_by_id.get(k) else f"Cat {k}") for k in all_cat_ids]
+    data_budget = [round(budget_by_cat.get(k, 0.0), 2) for k in all_cat_ids]
+    data_spent  = [round(spent_by_cat.get(k, 0.0), 2) for k in all_cat_ids]
+
+    # Navegación ciclos
     prev_anchor, next_anchor = d1 - timedelta(days=1), d2
     prev_y, prev_m = prev_anchor.year, prev_anchor.month
     next_y, next_m = next_anchor.year, next_anchor.month
@@ -152,7 +198,10 @@ def resumen():
         d1=d1, fin_inclusivo=fin_inclusivo,
         ingresos=ingresos, gastos=gastos, balance=balance,
         saldos=saldos, por_cat=por_cat,
-        prev_y=prev_y, prev_m=prev_m, next_y=next_y, next_m=next_m
+        prev_y=prev_y, prev_m=prev_m, next_y=next_y, next_m=next_m,
+        # --- datos para charts ---
+        labels_exp=labels_exp, data_exp=data_exp,
+        labels_bv=labels_bv, data_budget=data_budget, data_spent=data_spent
     )
 
 # ---- Transacciones ----
@@ -243,7 +292,7 @@ def transactions_edit(tx_id):
         flash('Transacción actualizada', 'ok')
         return redirect(url_for('transactions_index'))
 
-    return render_template('transactions_form.html', accounts=accounts, categories=categories, item=t, modo='edit'))
+    return render_template('transactions_form.html', accounts=accounts, categories=categories, item=t, modo='edit')
 
 @app.route('/transacciones/<int:tx_id>/eliminar', methods=['POST'])
 def transactions_delete(tx_id):
@@ -252,7 +301,7 @@ def transactions_delete(tx_id):
     flash('Transacción eliminada', 'ok')
     return redirect(url_for('transactions_index'))
 
-# ---- Categorías ----
+# ---- Categorías y Cuentas ----
 @app.route('/categorias', methods=['GET','POST'])
 def categories_index():
     if request.method == 'POST':
@@ -285,7 +334,6 @@ def category_delete(cat_id):
     flash('Categoría eliminada', 'ok')
     return redirect(url_for('categories_index'))
 
-# ---- Cuentas ----
 @app.route('/cuentas', methods=['GET','POST'])
 def accounts_index():
     if request.method == 'POST':
@@ -378,7 +426,6 @@ def goals_delete_contribution(goal_id, aid):
 # ---- PRESUPUESTO ----
 @app.route('/presupuesto', methods=['GET', 'POST'])
 def budget_index():
-    # y/m = mes del inicio del ciclo (25)
     y_arg, m_arg = request.args.get('y'), request.args.get('m')
     if request.method == 'POST':
         y_arg = request.form.get('y')
@@ -393,14 +440,12 @@ def budget_index():
             budget = Budget(cycle_start=d1)
             db.session.add(budget)
 
-        # Guardar ingreso estimado (Decimal en BD)
         income_estimated_s = (request.form.get('income_estimated') or '0').replace(',', '.')
         try:
             budget.income_estimated = Decimal(income_estimated_s)
         except Exception:
             budget.income_estimated = Decimal('0.00')
 
-        # Categorías de gasto (todo lo que no sea 'ingreso')
         cats_all = Category.query.order_by(Category.nombre).all()
         gasto_cats = [c for c in cats_all if (c.tipo or '').strip().lower() != 'ingreso']
 
@@ -426,11 +471,9 @@ def budget_index():
         flash('Presupuesto guardado', 'ok')
         return redirect(url_for('budget_index', y=d1.year, m=d1.month))
 
-    # ---------- GET: preparar datos (todo en float para la vista) ----------
     cats_all = Category.query.order_by(Category.nombre).all()
     gasto_cats = [c for c in cats_all if (c.tipo or '').strip().lower() != 'ingreso']
 
-    # Ingreso estimado y líneas -> floats
     line_by_cat = {}
     income_estimated = 0.0
     if budget:
@@ -438,14 +481,12 @@ def budget_index():
         for bl in budget.lines:
             line_by_cat[bl.category_id] = float(bl.amount or 0)
 
-    # Gastado real por categoría en el ciclo -> floats
     tx_cycle = Transaction.query.filter(Transaction.fecha >= d1, Transaction.fecha < d2).all()
     spent_by_cat = {}
     for t in tx_cycle:
         if t.category and (t.category.tipo or '').strip().lower() != 'ingreso':
             spent_by_cat[t.category_id] = spent_by_cat.get(t.category_id, 0.0) + float(t.importe)
 
-    # Totales -> floats
     total_budget = sum(line_by_cat.get(c.id, 0.0) for c in gasto_cats)
     total_spent  = sum(spent_by_cat.get(c.id, 0.0) for c in gasto_cats)
     total_income_real = sum(float(t.importe) for t in tx_cycle
@@ -456,19 +497,13 @@ def budget_index():
     prev_y, prev_m = prev_anchor.year, prev_anchor.month
     next_y, next_m = next_anchor.year, next_anchor.month
 
-    # Para evitar cualquier Decimal en la vista, convertir estructuras a float seguros
-    line_by_cat = {int(k): float(v) for k, v in line_by_cat.items()}
-    spent_by_cat = {int(k): float(v) for k, v in spent_by_cat.items()}
-
     return render_template('budget_index.html',
         d1=d1, d2=d2, fin_inclusivo=d2 - timedelta(days=1),
         gasto_cats=gasto_cats,
         line_by_cat=line_by_cat,
         spent_by_cat=spent_by_cat,
-        income_estimated=float(income_estimated),
-        total_budget=float(total_budget),
-        total_spent=float(total_spent),
-        total_income_real=float(total_income_real),
+        income_estimated=income_estimated,
+        total_budget=total_budget, total_spent=total_spent, total_income_real=total_income_real,
         y=d1.year, m=d1.month, prev_y=prev_y, prev_m=prev_m, next_y=next_y, next_m=next_m
     )
 
